@@ -1,56 +1,42 @@
 import torch
-from rgb_hsv import RGB_HSV
+from convertor import Convertor
+
 device = torch.device("cuda" if (torch.cuda.is_available()) else "cpu")
+
 class FGSM():
-    def __init__(self,model,eps): #eps is delta's limit
+    def __init__(self, model, eps):
         self.model = model
         self.eps = eps
         self.criterion = torch.nn.CrossEntropyLoss()
-        self.convertor = RGB_HSV()
-    def get_delta(self,hsv_images,labels,delta):
-        
-        delta.requires_grad = True
+        self.convertor = Convertor()
+        pass
 
-        output = self.model(hsv_images,delta)
-        loss = self.criterion(output,labels)
-        grad = torch.autograd.grad(loss, delta,
-               retain_graph=False, create_graph=False,allow_unused = True)[0]
-        delta = self.eps * grad.sign()
-        return delta
-
-    def add_delta(self, hsv_images, delta):
-        b = torch.arange(hsv_images.size(0)).long().to(device)
-        color0 = torch.LongTensor([0 for i in range(hsv_images.size(0))]).to(device)
-        color1 = torch.LongTensor([1 for i in range(hsv_images.size(0))]).to(device)
-        color2 = torch.LongTensor([2 for i in range(hsv_images.size(0))]).to(device)
-
-        _a = delta[b, color0].reshape(-1, 1)
-        _b = torch.ones(32 * 32).to(device)
-        _d = torch.kron(_a, _b).reshape(-1, 32, 32).to(device)
-        hsv_images[b, color0] += _d[b]
-
-        _a = delta[b, color1].reshape(-1, 1)
-        _b = torch.ones(32 * 32).to(device)
-        _d = torch.kron(_a, _b).reshape(-1, 32, 32).to(device)
-        hsv_images[b, color1] += _d[b]
-
-        _a = delta[b, color2].reshape(-1, 1)
-        _b = torch.ones(32 * 32).to(device)
-        _d = torch.kron(_a, _b).reshape(-1, 32, 32).to(device)
-        hsv_images[b, color2] += _d[b]
-
-        return hsv_images
-
-    def forward(self,images,labels,delta):
-        # get delta
+    def gen_adv(self, images, labels):
+        # detach the sources
         images = images.clone().detach().to(device)
         labels = labels.clone().detach().to(device)
-        delta = delta.clone().detach().to(device)
-        new_delta = self.get_delta(images, labels, delta)
-        # image to hsv -> hsv + delta -> rgb
-        img = self.convertor.rgb_to_hsv(images)
-        img = self.add_delta(img, new_delta)
-        img = self.convertor.hsv_to_rgb(img)
-        return img.detach()
+        delta = torch.zeros(images.size(0), 3).to(device)
+        delta.requires_grad = True
+        
+        # convert rgb to hsv, apply delta and convert back
+        hsv_images = self.convertor.rgb_to_hsv(images)
+        hsv_images = self.convertor.apply_delta(hsv_images, delta)
+        images = self.convertor.hsv_to_rgb(hsv_images)
+
+        # go through the model
+        images = self.convertor.normalize(images)
+        outputs = self.model(images)
+        
+        # get the new delta
+        loss = self.criterion(outputs, labels)
+        grad = torch.autograd.grad(loss, delta,
+               retain_graph=False, create_graph=False)[0]
+        delta = self.eps * grad.sign()
+
+        adv_images = self.convertor.apply_delta(hsv_images, delta)
+        adv_images = self.convertor.hsv_to_rgb(adv_images).detach()
+
+        return adv_images
+
 
 

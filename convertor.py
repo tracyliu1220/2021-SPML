@@ -6,9 +6,11 @@ RGB or HSV's range: [0, 1)
 import torch
 from torch import nn
 
-class RGB_HSV(nn.Module):
+device = torch.device("cuda" if (torch.cuda.is_available()) else "cpu")
+
+class Convertor(nn.Module):
     def __init__(self, eps=1e-8):
-        super(RGB_HSV, self).__init__()
+        super(Convertor, self).__init__()
         self.eps = eps
 
     def rgb_to_hsv(self, img):
@@ -86,40 +88,43 @@ class RGB_HSV(nn.Module):
         b = b.unsqueeze(1)
         rgb = torch.cat([r, g, b], dim=1)
         return rgb
- 
-if __name__ == '__main__':
-  import torch
-  import cv2
-  import matplotlib.pyplot as plt
-  from rgb_hsv import RGB_HSV
-  import matplotlib.colors as mcolors
-  
-  img = cv2.imread('../images/0.jpg')
-  rgb = img[:,:,::-1]  #注意opencv是BGR?序&#xff0c;必???成RGB
-  rgb = rgb / 255
-  
-  rgb_tensor = torch.from_numpy(rgb).permute(2,0,1).unsqueeze(0).float()
-  convertor = RGB_HSV()
-  
-  hsv_tensor = convertor.rgb_to_hsv(rgb_tensor)
-  rgb1 = convertor.hsv_to_rgb(hsv_tensor)
-  
-  hsv_arr = hsv_tensor[0].permute(1,2,0).numpy()
-  rgb1_arr = rgb1[0].permute(1,2,0).numpy()
-  
-  hsv_m = mcolors.rgb_to_hsv(rgb)
-  rgb1_m = mcolors.hsv_to_rgb(hsv_m)
-  
-  print('mse of my code and matplotlib:',((rgb1_arr - rgb)**2).mean())
-  plt.figure()
-  plt.imshow(rgb)
-  plt.title('origin image')
-  plt.figure()
-  plt.imshow(hsv_arr)
-  plt.title('visual to hsv')
-  plt.figure()
-  plt.imshow(rgb1_arr)
-  plt.title('convert back: my code')
-  plt.figure()
-  plt.imshow(rgb1_m)
-  plt.title('convert back: matplotlib method')
+
+    def apply_delta(self, images, delta):
+        batch = torch.arange(images.size(0)).long().to(device)
+        color0 = torch.LongTensor([0 for i in range(images.size(0))]).to(device)
+        color1 = torch.LongTensor([1 for i in range(images.size(0))]).to(device)
+        color2 = torch.LongTensor([2 for i in range(images.size(0))]).to(device)
+
+        _a = delta[batch, color0].reshape(-1, 1)
+        _b = torch.ones(32 * 32).to(device)
+        _d = torch.kron(_a, _b).reshape(-1, 32, 32).to(device)
+        images[batch, color0] += _d[batch]
+
+        _a = delta[batch, color1].reshape(-1, 1)
+        _b = torch.ones(32 * 32).to(device)
+        _d = torch.kron(_a, _b).reshape(-1, 32, 32).to(device)
+        images[batch, color1] += _d[batch]
+
+        _a = delta[batch, color2].reshape(-1, 1)
+        _b = torch.ones(32 * 32).to(device)
+        _d = torch.kron(_a, _b).reshape(-1, 32, 32).to(device)
+        images[batch, color2] += _d[batch]
+
+        return images
+
+    def normalize(self, images):
+        batch = torch.arange(images.size(0)).long().to(device)
+        color0 = torch.LongTensor([0 for i in range(images.size(0))]).to(device)
+        color1 = torch.LongTensor([1 for i in range(images.size(0))]).to(device)
+        color2 = torch.LongTensor([2 for i in range(images.size(0))]).to(device)
+
+        images[batch, color0] -= 0.4914
+        images[batch, color0] /= 0.2023
+        
+        images[batch, color1] -= 0.4822
+        images[batch, color1] /= 0.1994
+
+        images[batch, color2] -= 0.4465
+        images[batch, color2] /= 0.2010
+
+        return images
