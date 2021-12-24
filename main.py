@@ -2,13 +2,15 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 from fgsm import FGSM
+from pgd import PGD
+from semantic import Semantic
 from convertor import Convertor
 from torchvision.utils import save_image
 
 device = torch.device("cuda" if (torch.cuda.is_available()) else "cpu")
 
 # ==== parameters ====
-eps = torch.Tensor([0.3, 0.15, 0.2]).to(device)
+eps = torch.Tensor([0.3, 0.15, 0.3]).to(device)
 batch_size = 4
 
 # ==== model ====
@@ -18,6 +20,8 @@ model.eval()
 
 # ==== attack method ====
 attack = FGSM(model, eps)
+# attack = PGD(model, eps)
+# attack = Semantic(model)
 
 # ==== convertor ====
 convertor = Convertor()
@@ -34,13 +38,13 @@ correct = 0
 total = 0
 
 for i,data in enumerate(testloader):
-    # if i == 500:
-    #     break
+    if i == 25:
+        break
     images, labels = data
     images, labels = images.to(device), labels.to(device)
 
-    save_image(images[0], 'test.png')
     if i == 0:
+        save_image(images[0], 'test.png')
         print(labels[0])
 
     # generate adversarial images
@@ -63,3 +67,4 @@ for i,data in enumerate(testloader):
 
 print('Accuracy of the network on the 10000 test images: %d %%' % (
     100 * correct / total))
+print('total:', total)
